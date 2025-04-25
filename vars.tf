@@ -119,16 +119,9 @@ variable "enable_external_dns" {
   default     = true
 }
 
-variable "external_dns_domain" {
-  description = "Domain to use for External DNS"
+variable "domain_name" {
+  description = "Domain name for cluster services (ArgoCD will be created as argocd.domain_name)"
   type        = string
-  default     = ""
-}
-
-variable "external_dns_txt_owner_id" {
-  description = "TXT record owner ID for External DNS"
-  type        = string
-  default     = ""
 }
 
 variable "external_dns_route53_zone_arns" {
@@ -151,33 +144,14 @@ variable "enable_argocd" {
   default     = true
 }
 
-variable "argocd_domain" {
-  description = "Domain for ArgoCD ingress"
-  type        = string
-  default     = ""
-}
-
 variable "acm_cert_id" {
-  description = "ACM certificate ID for ArgoCD"
+  description = "ACM certificate ID for HTTPS"
   type        = string
-  default     = ""
 }
 
-# Add-on timeouts
-variable "addon_timeouts" {
-  description = "Map of timeouts for add-ons"
-  type        = map(string)
-  default = {
-    after_eks            = "10s"
-    after_lb_controller  = "10s"
-    after_external_dns   = "10s"
-    after_external_secrets = "10s"
-  }
-}
-
-# Additional AWS Load Balancer Controller settings
+# Additional addon settings
 variable "aws_load_balancer_controller_settings" {
-  description = "Additional settings for AWS Load Balancer Controller"
+  description = "Additional settings for AWS Load Balancer Controller (optional)"
   type        = list(object({
     name  = string
     value = string
@@ -185,9 +159,8 @@ variable "aws_load_balancer_controller_settings" {
   default     = []
 }
 
-# Additional External DNS settings
 variable "external_dns_settings" {
-  description = "Additional settings for External DNS"
+  description = "Additional settings for External DNS (optional)"
   type        = list(object({
     name  = string
     value = string
@@ -195,9 +168,8 @@ variable "external_dns_settings" {
   default     = []
 }
 
-# Additional External Secrets settings
 variable "external_secrets_settings" {
-  description = "Additional settings for External Secrets"
+  description = "Additional settings for External Secrets (optional)"
   type        = list(object({
     name  = string
     value = string
@@ -205,9 +177,8 @@ variable "external_secrets_settings" {
   default     = []
 }
 
-# Additional ArgoCD settings
 variable "argocd_settings" {
-  description = "Additional settings for ArgoCD"
+  description = "Additional settings for ArgoCD (optional)"
   type        = map(string)
   default     = {}
 }

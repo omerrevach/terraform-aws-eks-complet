@@ -28,10 +28,9 @@ module "eks_production_cluster" {
   cluster_name   = "production-eks"
   cluster_version = "1.28"
 
-  # VPC configuration
-  vpc_cidr             = "10.0.0.0/16"
-  private_subnet_cidrs = ["10.0.1.0/24", "10.0.2.0/24", "10.0.3.0/24"]
-  public_subnet_cidrs  = ["10.0.101.0/24", "10.0.102.0/24", "10.0.103.0/24"]
+  # Domain configuration for services
+  domain_name = "example.com"
+  acm_cert_id = "12345678-1234-1234-1234-123456789012"
   
   # Node group configuration
   instance_type     = "m5.large"
@@ -84,29 +83,11 @@ module "eks_production_cluster" {
   enable_external_secrets             = true
   enable_argocd                       = true
 
-  # External DNS configuration
-  external_dns_domain        = "example.com"
-  external_dns_txt_owner_id  = "eks-production"
+  # Domain configuration
+  domain_name = "example.com"
+  acm_cert_id = "12345678-1234-1234-1234-123456789012"
   external_dns_route53_zone_arns = ["arn:aws:route53:::hostedzone/ZABCDEFGHIJKLM"]
-
-  # ArgoCD configuration
-  argocd_domain = "argocd.example.com"
-  acm_cert_id   = "12345678-1234-1234-1234-123456789012"
-
-  # Add-on timeouts for dependency management
-  addon_timeouts = {
-    after_eks              = "20s"
-    after_lb_controller    = "30s"
-    after_external_dns     = "20s"
-    after_external_secrets = "20s"
-  }
-
-  # Additional add-on settings
-  aws_load_balancer_controller_settings = [
-    { name = "region", value = "us-west-2" },
-    { name = "serviceAccount.name", value = "aws-load-balancer-controller" }
-  ]
-
+  
   # Global tagging
   tags = {
     Environment = "production"
@@ -121,7 +102,7 @@ module "eks_production_cluster" {
 
 | Name | Version |
 |------|---------|
-| terraform | >= 1.3.0 |
+| terraform | >= 1.3.2 |
 | aws | ~> 5.0 |
 | helm | >= 2.7.0 |
 | kubectl | ~> 1.14 |
@@ -176,14 +157,11 @@ module "eks_production_cluster" {
 | tags | A map of tags to add to all resources | `map(string)` | `{}` | no |
 | enable_aws_load_balancer_controller | Enable AWS Load Balancer Controller | `bool` | `true` | no |
 | enable_external_dns | Enable External DNS | `bool` | `true` | no |
-| external_dns_domain | Domain to use for External DNS | `string` | `""` | no |
-| external_dns_txt_owner_id | TXT record owner ID for External DNS | `string` | `""` | no |
+| domain_name | Domain name for cluster services (ArgoCD will be created as argocd.domain_name) | `string` | n/a | yes |
 | external_dns_route53_zone_arns | List of Route53 zone ARNs for External DNS | `list(string)` | `[]` | no |
 | enable_external_secrets | Enable External Secrets | `bool` | `true` | no |
 | enable_argocd | Enable ArgoCD | `bool` | `true` | no |
-| argocd_domain | Domain for ArgoCD ingress | `string` | `""` | no |
-| acm_cert_id | ACM certificate ID for ArgoCD | `string` | `""` | no |
-| addon_timeouts | Map of timeouts for add-ons | `map(string)` | `{ "after_eks": "10s", "after_lb_controller": "10s", "after_external_dns": "10s", "after_external_secrets": "10s" }` | no |
+| acm_cert_id | ACM certificate ID for HTTPS | `string` | n/a | yes |
 | aws_load_balancer_controller_settings | Additional settings for AWS Load Balancer Controller | `list(object({ name = string, value = string }))` | `[]` | no |
 | external_dns_settings | Additional settings for External DNS | `list(object({ name = string, value = string }))` | `[]` | no |
 | external_secrets_settings | Additional settings for External Secrets | `list(object({ name = string, value = string }))` | `[]` | no |
@@ -197,24 +175,33 @@ module "eks_production_cluster" {
 | private_subnets | List of private subnet IDs |
 | public_subnets | List of public subnet IDs |
 | cluster_id | EKS cluster ID |
+| cluster_name | EKS cluster name |
 | cluster_endpoint | Endpoint for EKS control plane |
 | cluster_security_group_id | Security group ID attached to the EKS cluster |
+| cluster_iam_role_name | IAM role name of the EKS cluster |
+| cluster_certificate_authority_data | Base64 encoded certificate data required to communicate with the cluster |
+| oidc_provider | The OpenID Connect identity provider (issuer URL without leading `https://`) |
 | oidc_provider_arn | The ARN of the OIDC Provider |
+| cluster_version | The Kubernetes version for the EKS cluster |
 | region | AWS region |
 | argocd_url | ArgoCD URL |
+| load_balancer_controller_enabled | Whether AWS Load Balancer Controller is enabled |
+| external_dns_enabled | Whether External DNS is enabled |
+| external_secrets_enabled | Whether External Secrets is enabled |
+| node_group_arns | ARNs of the EKS node groups |
 
 ## Add-on Dependency Management
 
 This module ensures proper ordering of add-on installation through a combination of separate module calls and time-based dependencies:
 
 1. The EKS cluster is created first
-2. A small delay ensures the cluster is fully operational
+2. A small delay ensures the cluster is fully operational (20s)
 3. AWS Load Balancer Controller is installed
-4. Another delay ensures the controller is running
+4. Another delay ensures the controller is running (30s)
 5. External DNS is installed
-6. Another delay ensures External DNS is running
+6. Another delay ensures External DNS is running (20s)
 7. External Secrets is installed
-8. Finally, after a delay, ArgoCD is installed
+8. Finally, after a delay (20s), ArgoCD is installed
 
 This approach guarantees that each component has its dependencies properly initialized before installation.
 

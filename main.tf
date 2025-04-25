@@ -1,5 +1,5 @@
 terraform {
-  required_version = ">= 1.3"
+  required_version = ">= 1.3.2"
   required_providers {
     aws = {
       source  = "hashicorp/aws"
@@ -53,33 +53,63 @@ data "aws_availability_zones" "available" {}
 data "aws_caller_identity" "current" {}
 
 locals {
+  # Fixed timeouts that users cannot override
+  addon_timeouts = {
+    after_eks              = "20s"
+    after_lb_controller    = "30s"
+    after_external_dns     = "20s"
+    after_external_secrets = "20s"
+  }
+  
+  # Default AWS Load Balancer Controller settings
+  default_aws_lb_controller_settings = [
+    { name = "region", value = var.region },
+    { name = "vpcId", value = module.vpc.vpc_id }
+  ]
+  
+  # Merge default and user-provided settings
+  aws_lb_controller_settings = concat(
+    local.default_aws_lb_controller_settings,
+    var.aws_load_balancer_controller_settings
+  )
+  
+  # Default External DNS settings
+  default_external_dns_settings = [
+    { name = "policy", value = "sync" },
+    { name = "sources[0]", value = "service" },
+    { name = "sources[1]", value = "ingress" }
+  ]
+  
+  # Add domain filter only if domain is provided
+  domain_external_dns_settings = var.domain_name != "" ? [
+    { name = "domainFilters[0]", value = var.domain_name },
+    { name = "txtOwnerId", value = "eks-${var.cluster_name}" }
+  ] : []
+  
+  # Combine all External DNS settings
+  external_dns_settings = concat(
+    local.default_external_dns_settings,
+    local.domain_external_dns_settings,
+    var.external_dns_settings
+  )
+  
+  # Default External Secrets settings
+  default_external_secrets_settings = [
+    { name = "region", value = var.region }
+  ]
+  
+  # Merge default and user-provided settings
+  external_secrets_settings = concat(
+    local.default_external_secrets_settings,
+    var.external_secrets_settings
+  )
+  
+  # VPC tags
   vpc_tags = merge(
     var.tags,
     {
       "kubernetes.io/cluster/${var.cluster_name}" = "shared"
     }
-  )
-  
-  # Combine default addon settings with user-provided settings
-  aws_lb_controller_settings = concat(
-    [{ name = "vpcId", value = module.vpc.vpc_id }],
-    var.aws_load_balancer_controller_settings
-  )
-  
-  external_dns_settings = concat(
-    [
-      { name = "policy", value = "sync" },
-      { name = "domainFilters[0]", value = var.external_dns_domain },
-      { name = "txtOwnerId", value = var.external_dns_txt_owner_id },
-      { name = "sources[0]", value = "service" },
-      { name = "sources[1]", value = "ingress" }
-    ],
-    var.external_dns_settings
-  )
-  
-  external_secrets_settings = concat(
-    [{ name = "region", value = var.region }],
-    var.external_secrets_settings
   )
 }
 
@@ -136,7 +166,7 @@ module "eks" {
     aws-ebs-csi-driver     = { most_recent = true }
     vpc-cni = {
         most_recent = true
-        preserve    = true
+        preserve = true
     }
   }
 
@@ -172,7 +202,7 @@ module "eks" {
 # Create time-based resources to enforce ordering
 resource "time_sleep" "after_eks" {
   depends_on = [module.eks]
-  create_duration = lookup(var.addon_timeouts, "after_eks", "10s")
+  create_duration = local.addon_timeouts["after_eks"]
 }
 
 module "aws_load_balancer_controller" {
@@ -202,7 +232,7 @@ resource "time_sleep" "after_lb_controller" {
   count = var.enable_aws_load_balancer_controller ? 1 : 0
   
   depends_on = [module.aws_load_balancer_controller]
-  create_duration = lookup(var.addon_timeouts, "after_lb_controller", "10s")
+  create_duration = local.addon_timeouts["after_lb_controller"]
 }
 
 module "external_dns" {
@@ -233,7 +263,7 @@ resource "time_sleep" "after_external_dns" {
   count = var.enable_external_dns ? 1 : 0
   
   depends_on = [module.external_dns]
-  create_duration = lookup(var.addon_timeouts, "after_external_dns", "10s")
+  create_duration = local.addon_timeouts["after_external_dns"]
 }
 
 module "external_secrets" {
@@ -263,7 +293,7 @@ resource "time_sleep" "after_external_secrets" {
   count = var.enable_external_secrets ? 1 : 0
   
   depends_on = [module.external_secrets]
-  create_duration = lookup(var.addon_timeouts, "after_external_secrets", "10s")
+  create_duration = local.addon_timeouts["after_external_secrets"]
 }
 
 module "argocd" {
@@ -307,14 +337,14 @@ module "argocd" {
               alb.ingress.kubernetes.io/load-balancer-attributes: idle_timeout.timeout_seconds=120
               alb.ingress.kubernetes.io/ssl-redirect: '443'
               alb.ingress.kubernetes.io/certificate-arn: arn:aws:acm:${var.region}:${data.aws_caller_identity.current.account_id}:certificate/${var.acm_cert_id}
-              external-dns.alpha.kubernetes.io/hostname: ${var.argocd_domain}
+              external-dns.alpha.kubernetes.io/hostname: argocd.${var.domain_name}
             hosts:
-              - ${var.argocd_domain}
+              - argocd.${var.domain_name}
             path: /
             pathType: Prefix
           configs:
             cm:
-              url: https://${var.argocd_domain}
+              url: https://argocd.${var.domain_name}
             params:
               server.insecure: "true"
         EOF
